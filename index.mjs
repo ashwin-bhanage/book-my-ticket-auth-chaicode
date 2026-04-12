@@ -21,15 +21,21 @@ const port = process.env.PORT || 8080;
 // If you pick one connection out of the pool and release it
 // the pooler will keep that connection open for sometime to other clients to reuse
 const pool = new pg.Pool({
-  host: "localhost",
-  port: 5433,
+  host: "127.0.0.1",
+  port: 5432,
   user: "postgres",
-  password: "postgres",
-  database: "sql_class_2_db",
+  password: "postgres@12",
+  database: "bookmyticket",
   max: 20,
   connectionTimeoutMillis: 0,
   idleTimeoutMillis: 0,
 });
+try {
+    const test = await pool.query("SELECT 1");
+    console.log("DB CONNECTED");
+} catch (err) {
+    console.error("REAL ERROR:", err);
+}
 
 const app = new express();
 app.use(cors());
