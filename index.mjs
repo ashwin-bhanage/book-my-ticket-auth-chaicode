@@ -7,12 +7,16 @@
 // SELECT 0 FROM generate_series(1, 20);
 
 import express from "express";
-import pg from "pg";
+import pkg from "pg";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
 import dotenv from "dotenv";
+import { registerUser, loginUser } from "./controllers/authController.mjs";
+
 dotenv.config();
+
+const { Pool } = pkg;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -36,8 +40,9 @@ try {
     console.error("REAL ERROR:", err);
 }
 
-const app = new express();
+const app = express();
 app.use(cors());
+app.use(express.json()); // to parse JSON bodies
 
 app.get("/", (req, res) => {
   res.sendFile(__dirname + "/index.html");
@@ -87,5 +92,9 @@ app.put("/:id/:name", async (req, res) => {
     res.send(500);
   }
 });
+
+// login and register routes
+app.post("/login", loginUser);
+app.post("/register", registerUser);
 
 app.listen(port, () => console.log("Server starting on port: " + port));
