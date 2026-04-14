@@ -85,9 +85,28 @@ app.put("/book/:id", authMiddleware, async (req, res) => {
             return res.status(400).json({ message: "Seat already booked" });
         }
 
+        // preventing double-booking
+        const existingBooking = await conn.query(
+            "SELECT * FROM bookings WHERE user_id = $1 AND seat_id = $2",
+            [req.user.id, id],
+        );
+
+        if (existingBooking.rowCount > 0) {
+            await conn.query("ROLLBACK");
+            return res
+                .status(400)
+                .json({ message: "You already booked this seat" });
+        }
+
         await conn.query(
             "UPDATE seats SET isbooked = 1, name = $2 WHERE id = $1",
             [id, userEmail],
+        );
+
+        // NEW: insert booking record
+        await conn.query(
+            "INSERT INTO bookings (user_id, seat_id) VALUES ($1, $2)",
+            [req.user.id, id],
         );
 
         await conn.query("COMMIT");
@@ -106,7 +125,7 @@ app.put("/book/:id", authMiddleware, async (req, res) => {
     }
 });
 
-// booking old route without authentication 
+// booking old route without authentication
 app.put("/:id/:name", async (req, res) => {
     try {
         const id = req.params.id;
