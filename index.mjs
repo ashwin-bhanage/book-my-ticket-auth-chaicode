@@ -13,6 +13,7 @@ import { fileURLToPath } from "url";
 import cors from "cors";
 import dotenv from "dotenv";
 import { registerUser, loginUser } from "./controllers/authController.mjs";
+import { authMiddleware } from "./middleware/authMiddleware.mjs";
 
 dotenv.config();
 
@@ -45,52 +46,104 @@ app.use(cors());
 app.use(express.json()); // to parse JSON bodies
 
 app.get("/", (req, res) => {
-  res.sendFile(__dirname + "/index.html");
+    res.sendFile(__dirname + "/index.html");
 });
 //get all seats
 app.get("/seats", async (req, res) => {
-  const result = await pool.query("select * from seats"); // equivalent to Seats.find() in mongoose
-  res.send(result.rows);
+    const result = await pool.query("select * from seats"); // equivalent to Seats.find() in mongoose
+    res.send(result.rows);
 });
 
 //book a seat give the seatId and your name
+// middleware to protect routes
+app.put("/book/:id", authMiddleware, async (req, res) => {
+    let conn;
 
-app.put("/:id/:name", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const name = req.params.name;
-    // payment integration should be here
-    // verify payment
-    const conn = await pool.connect(); // pick a connection from the pool
-    //begin transaction
-    // KEEP THE TRANSACTION AS SMALL AS POSSIBLE
-    await conn.query("BEGIN");
-    //getting the row to make sure it is not booked
-    /// $1 is a variable which we are passing in the array as the second parameter of query function,
-    // Why do we use $1? -> this is to avoid SQL INJECTION
-    // (If you do ${id} directly in the query string,
-    // then it can be manipulated by the user to execute malicious SQL code)
-    const sql = "SELECT * FROM seats where id = $1 and isbooked = 0 FOR UPDATE";
-    const result = await conn.query(sql, [id]);
+    try {
+        const id = req.params.id;
 
-    //if no rows found then the operation should fail can't book
-    // This shows we Do not have the current seat available for booking
-    if (result.rowCount === 0) {
-      res.send({ error: "Seat already booked" });
-      return;
+        if (!id || isNaN(id)) {
+            return res.status(400).json({ message: "Invalid seat id" });
+        }
+
+        if (!req.user || !req.user.email) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        const userEmail = req.user.email;
+
+        conn = await pool.connect();
+        await conn.query("BEGIN");
+
+        const result = await conn.query(
+            "SELECT * FROM seats WHERE id = $1 AND isbooked = 0 FOR UPDATE",
+            [id],
+        );
+
+        if (result.rowCount === 0) {
+            await conn.query("ROLLBACK");
+            return res.status(400).json({ message: "Seat already booked" });
+        }
+
+        await conn.query(
+            "UPDATE seats SET isbooked = 1, name = $2 WHERE id = $1",
+            [id, userEmail],
+        );
+
+        await conn.query("COMMIT");
+
+        res.json({ message: "Seat booked successfully" });
+    } catch (err) {
+        console.error("BOOK ERROR:", err);
+
+        if (conn) {
+            await conn.query("ROLLBACK");
+        }
+
+        res.status(500).json({ message: err.message });
+    } finally {
+        if (conn) conn.release();
     }
-    //if we get the row, we are safe to update
-    const sqlU = "update seats set isbooked = 1, name = $2 where id = $1";
-    const updateResult = await conn.query(sqlU, [id, name]); // Again to avoid SQL INJECTION we are using $1 and $2 as placeholders
+});
 
-    //end transaction by committing
-    await conn.query("COMMIT");
-    conn.release(); // release the connection back to the pool (so we do not keep the connection open unnecessarily)
-    res.send(updateResult);
-  } catch (ex) {
-    console.log(ex);
-    res.send(500);
-  }
+// booking old route without authentication 
+app.put("/:id/:name", async (req, res) => {
+    try {
+        const id = req.params.id;
+        const name = req.params.name;
+        // payment integration should be here
+        // verify payment
+        const conn = await pool.connect(); // pick a connection from the pool
+        //begin transaction
+        // KEEP THE TRANSACTION AS SMALL AS POSSIBLE
+        await conn.query("BEGIN");
+        //getting the row to make sure it is not booked
+        /// $1 is a variable which we are passing in the array as the second parameter of query function,
+        // Why do we use $1? -> this is to avoid SQL INJECTION
+        // (If you do ${id} directly in the query string,
+        // then it can be manipulated by the user to execute malicious SQL code)
+        const sql =
+            "SELECT * FROM seats where id = $1 and isbooked = 0 FOR UPDATE";
+        const result = await conn.query(sql, [id]);
+
+        //if no rows found then the operation should fail can't book
+        // This shows we Do not have the current seat available for booking
+        if (result.rowCount === 0) {
+            res.send({ error: "Seat already booked" });
+            return;
+        }
+        //if we get the row, we are safe to update
+        const sqlU = "update seats set isbooked = 1, name = $2 where id = $1";
+        const updateResult = await conn.query(sqlU, [id, name]); // Again to avoid SQL INJECTION we are using $1 and $2 as placeholders
+
+        //end transaction by committing
+        await conn.query("COMMIT");
+        conn.release(); // release the connection back to the pool (so we do not keep the connection open unnecessarily)
+        res.send(updateResult);
+    } catch (ex) {
+        console.error("BOOK ERROR:", ex);
+        res.status(500).json({ message: ex.message });
+    }
 });
 
 // login and register routes
