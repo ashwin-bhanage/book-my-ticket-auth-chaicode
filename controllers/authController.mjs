@@ -1,19 +1,9 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import pkg from "pg";
 import dotenv from "dotenv";
+import { pool } from "../config/db.mjs";
 
 dotenv.config();
-
-const { Pool } = pkg;
-
-const pool = new Pool({
-    user: process.env.DB_USER,
-    host: process.env.DB_HOST,
-    database: process.env.DB_NAME,
-    password: process.env.DB_PASSWORD,
-    port: process.env.DB_PORT,
-});
 
 export const loginUser = async (req, res) => {
     try {

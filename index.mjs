@@ -7,17 +7,15 @@
 // SELECT 0 FROM generate_series(1, 20);
 
 import express from "express";
-import pkg from "pg";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
 import dotenv from "dotenv";
 import { registerUser, loginUser } from "./controllers/authController.mjs";
 import { authMiddleware } from "./middleware/authMiddleware.mjs";
+import { pool } from "./config/db.mjs";
 
 dotenv.config();
-
-const { Pool } = pkg;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -27,13 +25,7 @@ const port = process.env.PORT || 8080;
 // Pool is nothing but group of connections
 // If you pick one connection out of the pool and release it
 // the pooler will keep that connection open for sometime to other clients to reuse
-const pool = new Pool({
-    user: process.env.DB_USER,
-    host: process.env.DB_HOST,
-    database: process.env.DB_NAME,
-    password: process.env.DB_PASSWORD,
-    port: process.env.DB_PORT,
-});
+
 try {
     const test = await pool.query("SELECT 1");
     console.log("DB CONNECTED");
@@ -168,5 +160,26 @@ app.put("/:id/:name", async (req, res) => {
 // login and register routes
 app.post("/login", loginUser);
 app.post("/register", registerUser);
+
+// fetch user details with booking
+app.get("/bookings", authMiddleware, async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const result = await pool.query(
+            `SELECT b.id, b.created_at, s.id AS seat_id, s.name
+   FROM bookings b
+   JOIN seats s ON b.seat_id = s.id
+   WHERE b.user_id = $1
+   ORDER BY b.created_at DESC`,
+            [userId],
+        );
+
+        res.json(result.rows);
+    } catch (err) {
+        console.error("GET BOOKINGS ERROR:", err);
+        res.status(500).json({ message: err.message });
+    }
+});
 
 app.listen(port, () => console.log("Server starting on port: " + port));
